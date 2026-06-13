@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+motor
+redis
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+reportlab
+pydantic
+pydantic-settings
+pandas
+numpy
+matplotlib
+aiofiles
+sse-starlette
