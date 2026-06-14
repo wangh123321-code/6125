@@ -21,7 +21,7 @@
             <el-option
               v-for="a in athleteList"
               :key="a.id"
-              :label="`${a.name} (${a.group})`"
+              :label="`${a.full_name} (${a.group})`"
               :value="a.id"
             />
           </el-select>
@@ -353,10 +353,10 @@ const fetchAthletes = async () => {
     }
   } catch {
     athleteList.value = [
-      { id: 1, name: '张伟', group: '一组' },
-      { id: 2, name: '李娜', group: '一组' },
-      { id: 3, name: '王强', group: '二组' },
-      { id: 4, name: '赵敏', group: '二组' }
+      { id: 1, full_name: '张伟', group: '一组' },
+      { id: 2, full_name: '李娜', group: '一组' },
+      { id: 3, full_name: '王强', group: '二组' },
+      { id: 4, full_name: '赵敏', group: '二组' }
     ]
     selectedAthleteId.value = 1
   }
@@ -398,26 +398,27 @@ const loadPlan = async () => {
 }
 
 const parsePlanFromApi = (apiPlan) => {
-  const sets = Array.isArray(apiPlan.sets) ? apiPlan.sets.map(s => {
-    const paceStr = String(s.target_pace || '0:0')
-    const [pm, ps] = paceStr.split(':').map(n => parseInt(n) || 0)
+  const firstSession = (apiPlan.sessions && apiPlan.sessions[0]) || {}
+  const mainSet = Array.isArray(firstSession.main_set) ? firstSession.main_set : []
+  const sets = mainSet.length > 0 ? mainSet.map(s => {
+    const totalSec = s.target_pace_sec || 0
     return {
-      distance: s.distance || 0,
-      target_pace_min: pm,
-      target_pace_sec: ps,
-      rest_seconds: s.rest_seconds || 0,
-      note: s.note || ''
+      distance: s.distance_m || 0,
+      target_pace_min: Math.floor(totalSec / 60),
+      target_pace_sec: totalSec % 60,
+      rest_seconds: s.rest_sec || 0,
+      note: ''
     }
   }) : [{ distance: 800, target_pace_min: 1, target_pace_sec: 30, rest_seconds: 60, note: '自由泳' }]
   return {
     id: apiPlan.id,
     athlete_id: apiPlan.athlete_id,
     plan_date: apiPlan.plan_date,
-    warmup_distance: apiPlan.warmup_distance || 400,
-    cooldown_distance: apiPlan.cooldown_distance || 200,
-    intensity: apiPlan.intensity || 'medium',
+    warmup_distance: firstSession.warmup_distance || 400,
+    cooldown_distance: firstSession.cool_down_distance || 200,
+    intensity: 'medium',
     sets,
-    notes: apiPlan.notes || ''
+    notes: firstSession.notes || ''
   }
 }
 
@@ -471,19 +472,26 @@ const onWeekChange = () => {
 }
 
 const buildApiPayload = () => {
+  const date = weekDays.value[selectedDayIdx.value]?.fullDate
+  const mainSet = currentPlan.sets.map(s => {
+    const paceTotalSec = (parseInt(s.target_pace_min) || 0) * 60 + (parseInt(s.target_pace_sec) || 0)
+    return {
+      distance_m: parseInt(s.distance) || 0,
+      target_pace_sec: paceTotalSec,
+      rest_sec: parseInt(s.rest_seconds) || 0
+    }
+  })
   return {
     athlete_id: selectedAthleteId.value,
-    plan_date: weekDays.value[selectedDayIdx.value]?.fullDate,
-    warmup_distance: parseInt(currentPlan.warmup_distance) || 0,
-    cooldown_distance: parseInt(currentPlan.cooldown_distance) || 0,
-    intensity: currentPlan.intensity,
-    sets: currentPlan.sets.map(s => ({
-      distance: parseInt(s.distance) || 0,
-      target_pace: `${s.target_pace_min}:${String(s.target_pace_sec).padStart(2, '0')}`,
-      rest_seconds: parseInt(s.rest_seconds) || 0,
-      note: s.note || ''
-    })),
-    notes: currentPlan.notes
+    plan_date: date,
+    sessions: [{
+      date: date,
+      warmup_distance: parseInt(currentPlan.warmup_distance) || 0,
+      main_set: mainSet,
+      cool_down_distance: parseInt(currentPlan.cooldown_distance) || 0,
+      notes: currentPlan.notes || null
+    }],
+    status: 'active'
   }
 }
 

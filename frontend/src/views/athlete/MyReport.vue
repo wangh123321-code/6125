@@ -197,7 +197,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   DocumentAdd, Download, Location, Trophy, Cpu, Medal, Top, Bottom,
-  PieChart, DataLine, TrendCharts, Competition
+  PieChart, DataLine, TrendCharts
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'

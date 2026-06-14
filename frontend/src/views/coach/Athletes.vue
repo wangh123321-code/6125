@@ -43,13 +43,13 @@
       </template>
       <el-table :data="filteredAthletes" stripe style="width: 100%" v-loading="loading">
         <el-table-column label="序号" type="index" width="70" align="center" />
-        <el-table-column prop="name" label="姓名" min-width="120">
+        <el-table-column prop="full_name" label="姓名" min-width="120">
           <template #default="{ row }">
             <div class="athlete-cell">
               <el-avatar :size="36" class="mini-avatar">
-                {{ row.name?.charAt(0) }}
+                {{ row.full_name?.charAt(0) }}
               </el-avatar>
-              <span class="athlete-name">{{ row.name }}</span>
+              <span class="athlete-name">{{ row.full_name }}</span>
             </div>
           </template>
         </el-table-column>
@@ -68,12 +68,12 @@
             <span>{{ row.gender }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="height" label="身高(cm)" width="110" align="center" />
-        <el-table-column prop="weight" label="体重(kg)" width="110" align="center" />
-        <el-table-column prop="main_stroke" label="主项" width="120" align="center">
+        <el-table-column prop="height_cm" label="身高(cm)" width="110" align="center" />
+        <el-table-column prop="weight_kg" label="体重(kg)" width="110" align="center" />
+        <el-table-column prop="stroke_types" label="主项" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="getStrokeTagType(row.main_stroke)" size="small">
-              {{ row.main_stroke }}
+            <el-tag :type="getStrokeTagType(row.stroke_types?.[0])" size="small">
+              {{ row.stroke_types?.[0] || '-' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -89,7 +89,7 @@
 
     <el-dialog
       v-model="detailVisible"
-      :title="`${currentAthlete?.name || ''} - 训练档案`"
+      :title="`${currentAthlete?.full_name || ''} - 训练档案`"
       width="1100px"
       class="detail-dialog"
       destroy-on-close
@@ -108,9 +108,9 @@
               </template>
               <div class="info-body">
                 <el-avatar :size="80" class="big-avatar">
-                  {{ currentAthlete?.name?.charAt(0) }}
+                  {{ currentAthlete?.full_name?.charAt(0) }}
                 </el-avatar>
-                <h3 class="info-name">{{ currentAthlete?.name }}</h3>
+                <h3 class="info-name">{{ currentAthlete?.full_name }}</h3>
                 <el-tag :type="getGroupTagType(currentAthlete?.group)" effect="dark" class="info-group-tag">
                   {{ currentAthlete?.group }}
                 </el-tag>
@@ -125,15 +125,15 @@
                   </div>
                   <div class="info-item">
                     <span class="info-label">身高</span>
-                    <span class="info-value">{{ currentAthlete?.height }} cm</span>
+                    <span class="info-value">{{ currentAthlete?.height_cm }} cm</span>
                   </div>
                   <div class="info-item">
                     <span class="info-label">体重</span>
-                    <span class="info-value">{{ currentAthlete?.weight }} kg</span>
+                    <span class="info-value">{{ currentAthlete?.weight_kg }} kg</span>
                   </div>
                   <div class="info-item">
                     <span class="info-label">主项</span>
-                    <span class="info-value">{{ currentAthlete?.main_stroke }}</span>
+                    <span class="info-value">{{ currentAthlete?.stroke_types?.[0] || '-' }}</span>
                   </div>
                 </div>
               </div>
@@ -146,7 +146,7 @@
                   <div class="stat-body">
                     <el-icon class="stat-icon"><Location /></el-icon>
                     <div class="stat-info">
-                      <div class="stat-val">{{ (stats.distance_30d / 1000).toFixed(1) }}<span class="stat-unit">km</span></div>
+                      <div class="stat-val">{{ (stats.total_distance / 1000).toFixed(1) }}<span class="stat-unit">km</span></div>
                       <div class="stat-lbl">30天距离</div>
                     </div>
                   </div>
@@ -168,7 +168,7 @@
                   <div class="stat-body">
                     <el-icon class="stat-icon"><Timer /></el-icon>
                     <div class="stat-info">
-                      <div class="stat-val">{{ stats.avg_pace }}<span class="stat-unit">/100m</span></div>
+                      <div class="stat-val">{{ fmtPace(stats.avg_pace) }}<span class="stat-unit">/100m</span></div>
                       <div class="stat-lbl">平均配速</div>
                     </div>
                   </div>
@@ -253,15 +253,22 @@ const filteredAthletes = computed(() => {
   return athleteList.value.filter(a => {
     const groupMatch = !filterGroup.value || a.group === filterGroup.value
     const kw = searchKeyword.value.trim().toLowerCase()
-    const kwMatch = !kw || a.name?.toLowerCase().includes(kw) || a.main_stroke?.toLowerCase().includes(kw)
+    const kwMatch = !kw || a.full_name?.toLowerCase().includes(kw) || (a.stroke_types?.[0] || '').toLowerCase().includes(kw)
     return groupMatch && kwMatch
   })
 })
 
+const fmtPace = (sec) => {
+  if (!sec && sec !== 0) return '-'
+  const m = Math.floor(sec / 60)
+  const s = Math.round(sec % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 const stats = reactive({
-  distance_30d: 0,
+  total_distance: 0,
   session_count: 0,
-  avg_pace: '1:30',
+  avg_pace: 0,
   avg_heart_rate: 0
 })
 
@@ -287,14 +294,14 @@ const fetchAthletes = async () => {
     }
   } catch (e) {
     athleteList.value = [
-      { id: 1, name: '张伟', group: '一组', age: 18, gender: '男', height: 182, weight: 72, main_stroke: '自由泳' },
-      { id: 2, name: '李娜', group: '一组', age: 17, gender: '女', height: 168, weight: 58, main_stroke: '蛙泳' },
-      { id: 3, name: '王强', group: '二组', age: 19, gender: '男', height: 185, weight: 78, main_stroke: '蝶泳' },
-      { id: 4, name: '赵敏', group: '二组', age: 16, gender: '女', height: 165, weight: 55, main_stroke: '仰泳' },
-      { id: 5, name: '陈磊', group: '三组', age: 20, gender: '男', height: 180, weight: 74, main_stroke: '混合泳' },
-      { id: 6, name: '刘洋', group: '三组', age: 18, gender: '男', height: 178, weight: 70, main_stroke: '自由泳' },
-      { id: 7, name: '孙悦', group: '一组', age: 17, gender: '女', height: 170, weight: 60, main_stroke: '蝶泳' },
-      { id: 8, name: '周杰', group: '精英组', age: 21, gender: '男', height: 190, weight: 82, main_stroke: '自由泳' }
+      { id: 1, full_name: '张伟', group: '一组', age: 18, gender: '男', height_cm: 182, weight_kg: 72, stroke_types: ['自由泳'] },
+      { id: 2, full_name: '李娜', group: '一组', age: 17, gender: '女', height_cm: 168, weight_kg: 58, stroke_types: ['蛙泳'] },
+      { id: 3, full_name: '王强', group: '二组', age: 19, gender: '男', height_cm: 185, weight_kg: 78, stroke_types: ['蝶泳'] },
+      { id: 4, full_name: '赵敏', group: '二组', age: 16, gender: '女', height_cm: 165, weight_kg: 55, stroke_types: ['仰泳'] },
+      { id: 5, full_name: '陈磊', group: '三组', age: 20, gender: '男', height_cm: 180, weight_kg: 74, stroke_types: ['混合泳'] },
+      { id: 6, full_name: '刘洋', group: '三组', age: 18, gender: '男', height_cm: 178, weight_kg: 70, stroke_types: ['自由泳'] },
+      { id: 7, full_name: '孙悦', group: '一组', age: 17, gender: '女', height_cm: 170, weight_kg: 60, stroke_types: ['蝶泳'] },
+      { id: 8, full_name: '周杰', group: '精英组', age: 21, gender: '男', height_cm: 190, weight_kg: 82, stroke_types: ['自由泳'] }
     ]
   } finally {
     loading.value = false
@@ -310,12 +317,15 @@ const fetchStats = async (athleteId) => {
     })
     if (res.data) {
       const s = res.data.data || res.data
-      Object.assign(stats, s)
+      stats.total_distance = s.total_distance_m || s.total_distance || 0
+      stats.session_count = s.session_count || 0
+      stats.avg_pace = s.avg_pace_sec || s.avg_pace || 0
+      stats.avg_heart_rate = s.avg_heart_rate || 0
     }
   } catch {
-    stats.distance_30d = 86500
+    stats.total_distance = 86500
     stats.session_count = 24
-    stats.avg_pace = '1:28'
+    stats.avg_pace = 88
     stats.avg_heart_rate = 145
   } finally {
     detailLoading.value = false
@@ -412,7 +422,7 @@ const initRadarChart = () => {
       textStyle: { color: '#fff' }
     },
     legend: {
-      data: [currentAthlete.value?.name, '组内平均'],
+      data: [currentAthlete.value?.full_name, '组内平均'],
       bottom: 0,
       textStyle: { color: '#606266', fontSize: 12 }
     },
@@ -434,7 +444,7 @@ const initRadarChart = () => {
       data: [
         {
           value: [82, 75, 88, 80, 78],
-          name: currentAthlete.value?.name,
+          name: currentAthlete.value?.full_name,
           lineStyle: { width: 2, color: '#0052d9' },
           areaStyle: { color: 'rgba(0, 82, 217, 0.35)' },
           itemStyle: { color: '#0052d9' }

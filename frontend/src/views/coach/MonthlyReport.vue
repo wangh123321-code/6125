@@ -20,7 +20,7 @@
             <el-option
               v-for="a in athleteList"
               :key="a.id"
-              :label="`${a.name} (${a.group})`"
+              :label="`${a.full_name} (${a.group})`"
               :value="a.id"
             />
           </el-select>
@@ -155,7 +155,7 @@
         <template #header>
           <div class="card-header">
             <span class="card-title">
-              <el-icon class="title-icon"><Competition /></el-icon>
+              <el-icon class="title-icon"><Trophy /></el-icon>
               与上月对比
             </span>
             <el-tag type="info" effect="plain" size="small">
@@ -210,7 +210,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   DocumentAdd, Download, Location, List, Cpu, Trophy, Top, Bottom,
-  PieChart, DataLine, TrendCharts, Competition
+  PieChart, DataLine, TrendCharts
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
@@ -260,6 +260,11 @@ const rowClass = ({ row }) => {
   return row.regressed ? 'regressed-row' : ''
 }
 
+const getStrokeColor = (stroke) => {
+  const map = { '自由泳': '#0052d9', '蛙泳': '#10b981', '仰泳': '#f59e0b', '蝶泳': '#ef4444', '混合泳': '#8b5cf6' }
+  return map[stroke] || '#0052d9'
+}
+
 const fetchAthletes = async () => {
   try {
     const res = await request({ method: 'GET', url: '/api/auth/athletes' })
@@ -269,9 +274,9 @@ const fetchAthletes = async () => {
     }
   } catch {
     athleteList.value = [
-      { id: 1, name: '张伟', group: '一组' },
-      { id: 2, name: '李娜', group: '一组' },
-      { id: 3, name: '王强', group: '二组' }
+      { id: 1, full_name: '张伟', group: '一组' },
+      { id: 2, full_name: '李娜', group: '一组' },
+      { id: 3, full_name: '王强', group: '二组' }
     ]
     form.athlete_id = 1
   }
@@ -312,11 +317,25 @@ const generateReport = async () => {
 }
 
 const fillReportData = (data) => {
-  reportStats.total_distance_km = data.total_distance_km ?? data.total_distance / 1000 ?? 0
-  reportStats.training_count = data.training_count ?? 0
-  reportStats.avg_heart_rate = data.avg_heart_rate ?? 0
-  reportStats.progress_index = data.progress_index ?? 0
-  compareData.value = data.compare_data || data.compare || []
+  reportStats.total_distance_km = (data.total_distance_m || 0) / 1000
+  reportStats.training_count = data.session_count || 0
+  reportStats.avg_heart_rate = data.avg_heart_rate || 0
+  reportStats.progress_index = data.progress_index || 0
+  const metricLabels = {
+    'total_distance_m': '总距离',
+    'high_intensity_minutes': '高强度时长',
+    'avg_stroke_length_cm': '平均划距',
+    'avg_body_rotation_deg': '平均身体转动'
+  }
+  compareData.value = (data.comparison_to_last_month || []).map(c => ({
+    metric: metricLabels[c.metric] || c.metric,
+    current: typeof c.current === 'number' ? c.current.toFixed(2) : c.current,
+    previous: typeof c.previous === 'number' ? c.previous.toFixed(2) : c.previous,
+    unit: '',
+    change_rate: (c.changed_percent >= 0 ? '+' : '') + c.changed_percent.toFixed(1) + '%',
+    regressed: c.regressed,
+    description: c.regressed ? '需要关注' : (c.changed_percent > 0 ? '进步明显' : '保持稳定')
+  }))
 }
 
 const fillMockReport = () => {
@@ -363,6 +382,20 @@ const initPieChart = () => {
   if (!pieChartRef.value) return
   pieChart?.dispose()
   pieChart = echarts.init(pieChartRef.value)
+  const strokeBreakdown = currentReport.value?.stroke_breakdown || []
+  const chartData = strokeBreakdown.length > 0
+    ? strokeBreakdown.map(item => ({
+        value: (item.distance_m || 0) / 1000,
+        name: item.stroke,
+        itemStyle: { color: getStrokeColor(item.stroke) }
+      }))
+    : [
+        { value: 52.6, name: '自由泳', itemStyle: { color: '#0052d9' } },
+        { value: 30.2, name: '蛙泳', itemStyle: { color: '#10b981' } },
+        { value: 18.5, name: '仰泳', itemStyle: { color: '#f59e0b' } },
+        { value: 15.8, name: '蝶泳', itemStyle: { color: '#ef4444' } },
+        { value: 11.4, name: '混合泳', itemStyle: { color: '#8b5cf6' } }
+      ]
   const option = {
     tooltip: {
       trigger: 'item',
@@ -393,13 +426,7 @@ const initPieChart = () => {
         fontSize: 12,
         fontWeight: 600
       },
-      data: [
-        { value: 52.6, name: '自由泳', itemStyle: { color: '#0052d9' } },
-        { value: 30.2, name: '蛙泳', itemStyle: { color: '#10b981' } },
-        { value: 18.5, name: '仰泳', itemStyle: { color: '#f59e0b' } },
-        { value: 15.8, name: '蝶泳', itemStyle: { color: '#ef4444' } },
-        { value: 11.4, name: '混合泳', itemStyle: { color: '#8b5cf6' } }
-      ]
+      data: chartData
     }]
   }
   pieChart.setOption(option)
@@ -409,6 +436,14 @@ const initBarChart = () => {
   if (!barChartRef.value) return
   barChart?.dispose()
   barChart = echarts.init(barChartRef.value)
+  const hrZones = currentReport.value?.heart_rate_zones || []
+  const categories = hrZones.length > 0
+    ? hrZones.map(z => z.zone)
+    : ['<120bpm', '120-140bpm', '140-160bpm', '160-180bpm', '>180bpm']
+  const values = hrZones.length > 0
+    ? hrZones.map(z => (z.minutes / 60).toFixed(1))
+    : [3.2, 8.6, 12.4, 7.8, 2.5]
+  const colors = ['#10b981', '#3b82f6', '#0052d9', '#f59e0b', '#ef4444']
   const option = {
     tooltip: {
       trigger: 'axis',
@@ -420,7 +455,7 @@ const initBarChart = () => {
     grid: { left: 50, right: 30, top: 30, bottom: 40 },
     xAxis: {
       type: 'category',
-      data: ['<120bpm', '120-140bpm', '140-160bpm', '160-180bpm', '>180bpm'],
+      data: categories,
       axisLine: { lineStyle: { color: '#e0e6ed' } },
       axisLabel: { color: '#606266', fontSize: 11, interval: 0, rotate: 0 }
     },
@@ -436,13 +471,10 @@ const initBarChart = () => {
     series: [{
       type: 'bar',
       barWidth: '50%',
-      data: [
-        { value: 3.2, itemStyle: { color: '#10b981', borderRadius: [6, 6, 0, 0] } },
-        { value: 8.6, itemStyle: { color: '#3b82f6', borderRadius: [6, 6, 0, 0] } },
-        { value: 12.4, itemStyle: { color: '#0052d9', borderRadius: [6, 6, 0, 0] } },
-        { value: 7.8, itemStyle: { color: '#f59e0b', borderRadius: [6, 6, 0, 0] } },
-        { value: 2.5, itemStyle: { color: '#ef4444', borderRadius: [6, 6, 0, 0] } }
-      ]
+      data: values.map((v, i) => ({
+        value: v,
+        itemStyle: { color: colors[i] || '#0052d9', borderRadius: [6, 6, 0, 0] }
+      }))
     }]
   }
   barChart.setOption(option)
@@ -452,13 +484,19 @@ const initTrendChart = () => {
   if (!trendChartRef.value) return
   trendChart?.dispose()
   trendChart = echarts.init(trendChartRef.value)
+  const techniqueTrends = currentReport.value?.technique_trends || []
+  const strokeLengthTrend = techniqueTrends.find(t => t.metric === 'stroke_length') || {}
   const days = []
-  const cur = []
-  const prev = []
-  for (let i = 1; i <= 30; i++) {
-    days.push(`${i}日`)
-    cur.push((Math.random() * 0.3 + 2.2).toFixed(2))
-    prev.push((Math.random() * 0.3 + 2.05).toFixed(2))
+  const cur = strokeLengthTrend.values && strokeLengthTrend.values.length > 0
+    ? strokeLengthTrend.values
+    : []
+  if (cur.length === 0) {
+    for (let i = 1; i <= 30; i++) {
+      days.push(`${i}日`)
+      cur.push((Math.random() * 0.3 + 2.2).toFixed(2))
+    }
+  } else {
+    cur.forEach((_, i) => days.push(`${i + 1}日`))
   }
   const option = {
     tooltip: {
@@ -468,7 +506,7 @@ const initTrendChart = () => {
       textStyle: { color: '#fff' }
     },
     legend: {
-      data: ['本月划距', '上月划距'],
+      data: ['本月划距'],
       top: 0,
       textStyle: { color: '#606266' }
     },
@@ -506,15 +544,6 @@ const initTrendChart = () => {
             { offset: 1, color: 'rgba(0, 82, 217, 0.02)' }
           ])
         }
-      },
-      {
-        name: '上月划距',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        data: prev,
-        lineStyle: { width: 2, color: '#13c2c2', type: 'dashed' },
-        itemStyle: { color: '#13c2c2' }
       }
     ]
   }

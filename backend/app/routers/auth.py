@@ -194,7 +194,7 @@ async def init_demo_data():
     }
 
 
-@router.get("/athletes", response_model=list[UserResponse])
+@router.get("/athletes")
 async def get_athletes(
     group_name: Optional[str] = Query(None, description="组名称过滤"),
     current_user: UserResponse = Depends(require_role("coach", "headcoach")),
@@ -217,4 +217,236 @@ async def get_athletes(
     cursor = db["users"].find(query).sort("username", 1)
     athletes = await cursor.to_list(length=None)
 
-    return [UserResponse(**athlete) for athlete in athletes]
+    result = []
+    for athlete in athletes:
+        user_resp = UserResponse(**athlete).model_dump()
+        profile = await db["athlete_profiles"].find_one({"user_id": athlete["_id"]})
+        if profile:
+            user_resp["age"] = profile.get("age")
+            user_resp["gender"] = profile.get("gender")
+            user_resp["height_cm"] = profile.get("height_cm")
+            user_resp["weight_kg"] = profile.get("weight_kg")
+            user_resp["stroke_types"] = profile.get("stroke_types", [])
+        else:
+            user_resp["age"] = None
+            user_resp["gender"] = None
+            user_resp["height_cm"] = None
+            user_resp["weight_kg"] = None
+            user_resp["stroke_types"] = []
+        result.append(user_resp)
+
+    return result
+
+
+dashboard_router = APIRouter(tags=["仪表盘"])
+
+
+@dashboard_router.get("/api/coach/dashboard")
+async def coach_dashboard(current_user: UserResponse = Depends(require_role("coach", "headcoach"))):
+    get_database()
+
+    session_query = {"status": "completed"}
+    if current_user.role == UserRole.COACH:
+        session_query["group_name"] = current_user.group
+
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_athlete_ids = await db["training_sessions"].distinct(
+        "athlete_id",
+        {**session_query, "session_date": {"$gte": today_start}},
+    )
+
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    monthly_report_count = await db["monthly_reports"].count_documents(
+        {"created_at": {"$gte": month_start}},
+    )
+
+    agg_pipeline = [
+        {"$match": session_query},
+        {
+            "$group": {
+                "_id": None,
+                "total_distance": {"$sum": "$total_distance_m"},
+                "hr_points": {"$push": "$heart_rate_data"},
+            }
+        },
+    ]
+    agg_result = await db["training_sessions"].aggregate(agg_pipeline).to_list(length=1)
+
+    total_distance_m = 0.0
+    avg_heart_rate = 0.0
+    if agg_result:
+        total_distance_m = float(agg_result[0].get("total_distance", 0.0))
+        all_hr = []
+        for hr_list in agg_result[0].get("hr_points", []) or []:
+            for point in hr_list or []:
+                if point and point.get("bpm"):
+                    all_hr.append(int(point["bpm"]))
+        if all_hr:
+            avg_heart_rate = round(sum(all_hr) / len(all_hr), 2)
+
+    recent_sessions_cursor = db["training_sessions"].find(session_query).sort("created_at", -1).limit(5)
+    recent_sessions = await recent_sessions_cursor.to_list(length=5)
+
+    session_list = []
+    for s in recent_sessions:
+        athlete = await db["users"].find_one({"_id": s["athlete_id"]})
+        athlete_name = athlete["full_name"] if athlete else "未知"
+
+        all_paces = []
+        for lap in s.get("lap_data", []) or []:
+            if lap.get("pace") is not None:
+                all_paces.append(float(lap["pace"]))
+        avg_pace = round(sum(all_paces) / len(all_paces), 2) if all_paces else 0.0
+
+        hr_values = []
+        for point in s.get("heart_rate_data", []) or []:
+            if point and point.get("bpm"):
+                hr_values.append(int(point["bpm"]))
+        session_avg_hr = round(sum(hr_values) / len(hr_values), 2) if hr_values else 0.0
+
+        stroke_types = []
+        for motion in s.get("motion_data", []) or []:
+            if motion.get("stroke_length_cm") is not None:
+                stroke_types.append(float(motion["stroke_length_cm"]))
+        avg_stroke = round(sum(stroke_types) / len(stroke_types), 2) if stroke_types else 0.0
+
+        session_list.append({
+            "id": str(s["_id"]),
+            "athleteName": athlete_name,
+            "distance": round(s.get("total_distance_m", 0.0) / 1000, 2),
+            "pace": avg_pace,
+            "stroke": avg_stroke,
+            "avgHeartRate": session_avg_hr,
+            "time": s.get("start_time").isoformat() if s.get("start_time") else None,
+        })
+
+    return {
+        "stats": {
+            "todayTrainees": len(today_athlete_ids),
+            "totalDistance": round(total_distance_m / 1000, 2),
+            "monthlyReports": monthly_report_count,
+            "avgHeartRate": avg_heart_rate,
+        },
+        "sessions": session_list,
+    }
+
+
+@dashboard_router.get("/api/headcoach/all-data")
+async def headcoach_all_data(current_user: UserResponse = Depends(require_role("headcoach"))):
+    get_database()
+
+    coaches_cursor = db["users"].find({"role": UserRole.COACH.value, "is_active": True})
+    coaches_list = await coaches_cursor.to_list(length=None)
+
+    groups_data = []
+    coaches_info = []
+    for c in coaches_list:
+        group_name = c.get("group", "")
+        coaches_info.append({
+            "name": c["full_name"],
+            "group": group_name,
+            "id": str(c["_id"]),
+        })
+
+        member_count = await db["users"].count_documents({
+            "role": UserRole.ATHLETE.value,
+            "group": group_name,
+            "is_active": True,
+        })
+
+        group_agg = [
+            {"$match": {"group_name": group_name, "status": "completed"}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total_distance": {"$sum": "$total_distance_m"},
+                    "lap_paces": {"$push": "$lap_data"},
+                }
+            },
+        ]
+        group_result = await db["training_sessions"].aggregate(group_agg).to_list(length=1)
+
+        group_total_dist = 0.0
+        group_avg_pace = 0.0
+        if group_result:
+            group_total_dist = float(group_result[0].get("total_distance", 0.0))
+            all_paces = []
+            for pace_list in group_result[0].get("lap_paces", []) or []:
+                for p in pace_list or []:
+                    if p and p.get("pace") is not None:
+                        all_paces.append(float(p["pace"]))
+            if all_paces:
+                group_avg_pace = round(sum(all_paces) / len(all_paces), 2)
+
+        groups_data.append({
+            "name": group_name,
+            "memberCount": member_count,
+            "totalDistance": round(group_total_dist / 1000, 2),
+            "avgPace": group_avg_pace,
+            "coachName": c["full_name"],
+        })
+
+    athletes_cursor = db["users"].find({"role": UserRole.ATHLETE.value, "is_active": True})
+    athletes_list = await athletes_cursor.to_list(length=None)
+
+    athletes_data = []
+    for a in athletes_list:
+        aid = a["_id"]
+        athlete_agg = [
+            {"$match": {"athlete_id": aid, "status": "completed"}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total_distance": {"$sum": "$total_distance_m"},
+                    "lap_paces": {"$push": "$lap_data"},
+                    "hr_points": {"$push": "$heart_rate_data"},
+                    "session_count": {"$sum": 1},
+                }
+            },
+        ]
+        athlete_result = await db["training_sessions"].aggregate(athlete_agg).to_list(length=1)
+
+        a_total_dist = 0.0
+        a_avg_pace = 0.0
+        a_avg_hr = 0.0
+        completion_rate = 0.0
+        if athlete_result:
+            a_total_dist = float(athlete_result[0].get("total_distance", 0.0))
+
+            all_paces = []
+            for pace_list in athlete_result[0].get("lap_paces", []) or []:
+                for p in pace_list or []:
+                    if p and p.get("pace") is not None:
+                        all_paces.append(float(p["pace"]))
+            if all_paces:
+                a_avg_pace = round(sum(all_paces) / len(all_paces), 2)
+
+            all_hr = []
+            for hr_list in athlete_result[0].get("hr_points", []) or []:
+                for point in hr_list or []:
+                    if point and point.get("bpm"):
+                        all_hr.append(int(point["bpm"]))
+            if all_hr:
+                a_avg_hr = round(sum(all_hr) / len(all_hr), 2)
+
+            total_sessions = await db["training_sessions"].count_documents({"athlete_id": aid})
+            completed_sessions = athlete_result[0].get("session_count", 0)
+            if total_sessions > 0:
+                completion_rate = round(completed_sessions / total_sessions * 100, 1)
+
+        athletes_data.append({
+            "id": str(aid),
+            "name": a["full_name"],
+            "group": a.get("group", ""),
+            "totalDistance": round(a_total_dist / 1000, 2),
+            "avgPace": a_avg_pace,
+            "avgHeartRate": a_avg_hr,
+            "completionRate": completion_rate,
+        })
+
+    return {
+        "groups": groups_data,
+        "athletes": athletes_data,
+        "coaches": coaches_info,
+    }

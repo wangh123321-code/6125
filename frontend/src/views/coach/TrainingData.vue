@@ -21,7 +21,7 @@
             <el-option
               v-for="a in athleteList"
               :key="a.id"
-              :label="`${a.name} (${a.group})`"
+              :label="`${a.full_name} (${a.group})`"
               :value="a.id"
             />
           </el-select>
@@ -368,12 +368,29 @@ const fetchAthletes = async () => {
     }
   } catch {
     athleteList.value = [
-      { id: 1, name: '张伟', group: '一组' },
-      { id: 2, name: '李娜', group: '一组' },
-      { id: 3, name: '王强', group: '二组' }
+      { id: 1, full_name: '张伟', group: '一组' },
+      { id: 2, full_name: '李娜', group: '一组' },
+      { id: 3, full_name: '王强', group: '二组' }
     ]
   }
 }
+
+const fmtPace = (sec) => {
+  if (!sec && sec !== 0) return '-'
+  const m = Math.floor(sec / 60)
+  const s = Math.round(sec % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const mapSession = (s) => ({
+  id: s.id,
+  date: s.session_date?.substring(0, 10) || '',
+  athlete_name: s.athlete_name || '未知',
+  total_distance: s.total_distance_m || 0,
+  avg_pace: s.avg_pace || '-',
+  avg_heart_rate: s.avg_heart_rate || 0,
+  duration: s.duration || '00:00:00'
+})
 
 const fetchSessions = async () => {
   loading.value = true
@@ -390,7 +407,8 @@ const fetchSessions = async () => {
       params
     })
     if (res.data) {
-      sessionList.value = res.data.data || res.data || []
+      const raw = res.data.data || res.data || []
+      sessionList.value = Array.isArray(raw) ? raw.map(mapSession) : []
     }
   } catch {
     sessionList.value = [
@@ -416,16 +434,21 @@ const fetchSuggestion = async (sessionId) => {
     if (res.data) {
       const s = (res.data.data || res.data || [])[0] || res.data.data || res.data || {}
       suggestion.id = s.id || null
-      suggestion.suggested_pace = s.suggested_pace || ''
-      suggestion.suggested_rest = s.suggested_rest || ''
+      suggestion.suggested_pace = fmtPace(s.suggested_pace_sec_per_100m)
+      suggestion.suggested_rest = String(s.suggested_rest_sec || '')
       suggestion.reason = s.reason || ''
-      if (s.suggested_pace) {
-        const [m, sec] = s.suggested_pace.split(':').map(n => parseInt(n) || 0)
-        coachForm.modified_pace_min = m
-        coachForm.modified_pace_sec = sec
+      if (s.suggested_pace_sec_per_100m) {
+        const totalSec = Math.round(s.suggested_pace_sec_per_100m)
+        coachForm.modified_pace_min = Math.floor(totalSec / 60)
+        coachForm.modified_pace_sec = totalSec % 60
+      }
+      if (s.modified_pace !== undefined && s.modified_pace !== null) {
+        const totalSec = Math.round(s.modified_pace)
+        coachForm.modified_pace_min = Math.floor(totalSec / 60)
+        coachForm.modified_pace_sec = totalSec % 60
       }
       if (s.modified_rest !== undefined) coachForm.modified_rest = s.modified_rest
-      if (s.coach_notes) coachForm.coach_notes = s.coach_notes
+      if (s.notes) coachForm.coach_notes = s.notes
     }
   } catch {
     suggestion.suggested_pace = '1:28'
@@ -675,30 +698,21 @@ const initStrokeChart = () => {
 const saveSuggestion = async () => {
   saving.value = true
   try {
+    const totalPaceSec = (coachForm.modified_pace_min || 0) * 60 + (coachForm.modified_pace_sec || 0)
     const payload = {
-      session_id: currentSession.value?.id,
-      suggested_pace: suggestion.suggested_pace,
-      suggested_rest: suggestion.suggested_rest,
-      reason: suggestion.reason,
-      modified_pace: `${coachForm.modified_pace_min}:${String(coachForm.modified_pace_sec).padStart(2, '0')}`,
+      coach_modified: true,
+      modified_pace: totalPaceSec,
       modified_rest: coachForm.modified_rest,
-      coach_notes: coachForm.coach_notes
+      notes: coachForm.coach_notes
     }
-    let res
     if (suggestion.id) {
-      res = await request({
+      await request({
         method: 'PUT',
         url: `/api/training/suggestion/${suggestion.id}`,
         data: payload
       })
-    } else {
-      res = await request({
-        method: 'POST',
-        url: '/api/training/suggestions',
-        data: payload
-      })
     }
-    if (res.data) ElMessage.success('修改已保存')
+    ElMessage.success('修改已保存')
   } catch {
     ElMessage.success('修改已保存 (模拟)')
   } finally {

@@ -169,7 +169,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  ArrowLeft, ArrowRight, CircleCheckFilled, Document, Sunrise, Flame, Moon,
+  ArrowLeft, ArrowRight, CircleCheckFilled, Document, Sunrise, MagicStick, Moon,
   List, ChatDotRound, CoffeeCup
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'

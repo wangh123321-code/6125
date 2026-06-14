@@ -9,7 +9,7 @@
       <div class="login-left">
         <div class="brand-section">
           <div class="brand-logo">
-            <el-icon :size="48"><SwimLane /></el-icon>
+            <el-icon :size="48"><TrophyBase /></el-icon>
           </div>
           <h1 class="brand-title">游泳训练管理系统</h1>
           <p class="brand-subtitle">Swimming Training Management Platform</p>
@@ -108,7 +108,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User, Lock, SwimLane, DataAnalysis, Calendar, Document, Avatar, Management } from '@element-plus/icons-vue'
+import { User, Lock, TrophyBase, DataAnalysis, Calendar, Document, Avatar, Management } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -122,7 +122,7 @@ const rememberMe = ref(false)
 const defaultAccounts = {
   athlete: { username: 'athlete001', password: '123456', tip: '运动员测试账号：athlete001 / 123456' },
   coach: { username: 'coach001', password: '123456', tip: '教练测试账号：coach001 / 123456' },
-  headcoach: { username: 'headcoach', password: '123456', tip: '总教练测试账号：headcoach / 123456' }
+  headcoach: { username: 'headcoach001', password: '123456', tip: '总教练测试账号：headcoach001 / 123456' }
 }
 
 const loginForm = reactive({

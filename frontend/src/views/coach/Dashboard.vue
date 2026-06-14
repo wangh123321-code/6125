@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">训练概览</h2>
-        <p class="page-subtitle">欢迎回来，{{ userStore.userInfo?.name || userStore.username }}！今天也要加油训练！</p>
+        <p class="page-subtitle">欢迎回来，{{ userStore.name }}！今天也要加油训练！</p>
       </div>
       <div class="header-date">
         <el-icon :size="18"><Calendar /></el-icon>
