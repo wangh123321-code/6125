@@ -333,8 +333,12 @@ async def coach_dashboard(current_user: UserResponse = Depends(require_role("coa
 
 
 @dashboard_router.get("/api/headcoach/all-data")
+@dashboard_router.get("/api/headcoach/group-stats")
 async def headcoach_all_data(current_user: UserResponse = Depends(require_role("headcoach"))):
     get_database()
+
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     coaches_cursor = db["users"].find({"role": UserRole.COACH.value, "is_active": True})
     coaches_list = await coaches_cursor.to_list(length=None)
@@ -379,11 +383,24 @@ async def headcoach_all_data(current_user: UserResponse = Depends(require_role("
             if all_paces:
                 group_avg_pace = round(sum(all_paces) / len(all_paces), 2)
 
+        group_total_sessions = await db["training_sessions"].count_documents({
+            "group_name": group_name,
+        })
+        group_completed_sessions = await db["training_sessions"].count_documents({
+            "group_name": group_name,
+            "status": "completed",
+        })
+        group_completion_rate = 0.0
+        if group_total_sessions > 0:
+            group_completion_rate = round(group_completed_sessions / group_total_sessions * 100, 1)
+
         groups_data.append({
             "name": group_name,
             "memberCount": member_count,
+            "totalAthletes": member_count,
             "totalDistance": round(group_total_dist / 1000, 2),
             "avgPace": group_avg_pace,
+            "completionRate": group_completion_rate,
             "coachName": c["full_name"],
         })
 
@@ -406,6 +423,20 @@ async def headcoach_all_data(current_user: UserResponse = Depends(require_role("
             },
         ]
         athlete_result = await db["training_sessions"].aggregate(athlete_agg).to_list(length=1)
+
+        month_agg = [
+            {"$match": {"athlete_id": aid, "status": "completed", "session_date": {"$gte": month_start}}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total_distance": {"$sum": "$total_distance_m"},
+                }
+            },
+        ]
+        month_result = await db["training_sessions"].aggregate(month_agg).to_list(length=1)
+        month_distance = 0.0
+        if month_result:
+            month_distance = round(float(month_result[0].get("total_distance", 0.0)) / 1000, 2)
 
         a_total_dist = 0.0
         a_avg_pace = 0.0
@@ -435,14 +466,36 @@ async def headcoach_all_data(current_user: UserResponse = Depends(require_role("
             if total_sessions > 0:
                 completion_rate = round(completed_sessions / total_sessions * 100, 1)
 
+        profile = await db["athlete_profiles"].find_one({"user_id": aid})
+        age = None
+        gender = None
+        height = None
+        weight = None
+        specialty = ""
+        if profile:
+            age = profile.get("age")
+            gender = profile.get("gender")
+            height = profile.get("height_cm")
+            weight = profile.get("weight_kg")
+            stroke_types = profile.get("stroke_types", [])
+            specialty = stroke_types[0] if stroke_types else ""
+
         athletes_data.append({
             "id": str(aid),
             "name": a["full_name"],
+            "full_name": a["full_name"],
             "group": a.get("group", ""),
+            "age": age,
+            "gender": gender,
+            "height": height,
+            "weight": weight,
+            "specialty": specialty,
             "totalDistance": round(a_total_dist / 1000, 2),
+            "monthDistance": month_distance,
             "avgPace": a_avg_pace,
             "avgHeartRate": a_avg_hr,
             "completionRate": completion_rate,
+            "attendanceRate": completion_rate,
         })
 
     return {

@@ -376,33 +376,47 @@ const mockAthletes = [
   { name: '郭美玲', group: '耐力三组', age: 21, gender: '女', height: 176, weight: 66, specialty: '1500m自由泳', monthDistance: 202, avgPace: '1:24', attendanceRate: 84 }
 ]
 
-const fetchAthletes = async () => {
+const formatPace = (pace) => {
+  if (typeof pace === 'string') return pace
+  if (typeof pace !== 'number' || pace <= 0) return '0:00'
+  const minutes = Math.floor(pace / 60)
+  const seconds = Math.floor(pace % 60)
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+const fetchAllData = async () => {
   loadingAthletes.value = true
   try {
-    const res = await request.get('/api/auth/athletes?all=true')
-    const data = res.data?.data || res.data || []
-    athletes.value = data.length > 0 ? data : mockAthletes
+    const res = await request.get('/api/headcoach/all-data')
+    const data = res.data?.data || res.data || {}
+
+    const groups = data.groups || []
+    if (groups && Array.isArray(groups)) {
+      groups.forEach(g => {
+        const formattedG = { ...g, avgPace: formatPace(g.avgPace) }
+        if (g.name === '精英一组' || g.groupId === 1) Object.assign(group1Stats, formattedG)
+        if (g.name === '冲刺二组' || g.groupId === 2) Object.assign(group2Stats, formattedG)
+        if (g.name === '耐力三组' || g.groupId === 3) Object.assign(group3Stats, formattedG)
+      })
+    }
+
+    const athletesList = data.athletes || []
+    if (athletesList && Array.isArray(athletesList) && athletesList.length > 0) {
+      athletes.value = athletesList.map(a => ({
+        ...a,
+        name: a.name || a.full_name,
+        attendanceRate: a.attendanceRate ?? a.completionRate,
+        monthDistance: a.monthDistance ?? a.totalDistance,
+        avgPace: formatPace(a.avgPace),
+      }))
+    } else {
+      athletes.value = mockAthletes
+    }
   } catch (e) {
-    console.log('获取全部运动员列表失败，使用Mock数据', e.message)
+    console.log('获取全部数据失败，使用Mock数据', e.message)
     athletes.value = mockAthletes
   } finally {
     loadingAthletes.value = false
-  }
-}
-
-const fetchGroupStats = async () => {
-  try {
-    const res = await request.get('/api/headcoach/group-stats')
-    const data = res.data?.data || res.data
-    if (data && Array.isArray(data)) {
-      data.forEach(g => {
-        if (g.name === '精英一组' || g.groupId === 1) Object.assign(group1Stats, g)
-        if (g.name === '冲刺二组' || g.groupId === 2) Object.assign(group2Stats, g)
-        if (g.name === '耐力三组' || g.groupId === 3) Object.assign(group3Stats, g)
-      })
-    }
-  } catch (e) {
-    console.log('获取组统计数据失败，使用默认数据', e.message)
   }
 }
 
@@ -433,7 +447,7 @@ const getAvatarColor = (name) => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([fetchAthletes(), fetchGroupStats()])
+  await fetchAllData()
   lastUpdateTime.value = dayjs().format('YYYY-MM-DD HH:mm:ss')
   ElMessage.success('全局数据刷新成功')
   initGroupCompareChart()
@@ -545,7 +559,7 @@ const initGroupCompareChart = () => {
 
 onMounted(async () => {
   await nextTick()
-  await Promise.all([fetchAthletes(), fetchGroupStats()])
+  await fetchAllData()
   initGroupCompareChart()
   window.addEventListener('resize', () => {
     if (groupCompareChartRef.value) {
