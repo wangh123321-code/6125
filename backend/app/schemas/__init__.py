@@ -301,3 +301,73 @@ class CameraAnalysisRequest(BaseModel):
     video_path: Optional[str] = None
     analyzed_at: Optional[datetime] = None
     frames: list[CameraMotionFrame]
+
+
+class QualityLabel(str, Enum):
+    NORMAL = "normal"
+    REPAIRED = "repaired"
+    ABNORMAL = "abnormal"
+
+
+class AnomalySegment(BaseModel):
+    source: str
+    field: str
+    start_timestamp: Optional[str] = None
+    end_timestamp: Optional[str] = None
+    original_value: Optional[Any] = None
+    repaired_value: Optional[Any] = None
+    reason: Optional[str] = None
+    action: Optional[str] = None
+
+
+class DataQualityScore(BaseModel):
+    completeness: float = 0.0
+    consistency: float = 0.0
+    reliability: float = 0.0
+    overall: float = 0.0
+    anomaly_count: int = 0
+    warning: bool = False
+
+
+class DataQualityReport(BaseModel):
+    session_id: str
+    quality: DataQualityScore
+    anomalies: list[AnomalySegment] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CoachDataAdjustment(BaseModel):
+    session_id: str
+    data_source: str
+    field: str
+    index: int
+    original_value: Any
+    new_value: Any
+    reason: Optional[str] = None
+
+
+class CoachAdjustmentLog(BaseModel):
+    id: PyObjectId = Field(default=None, validation_alias="_id")
+    session_id: PyObjectId
+    coach_id: PyObjectId
+    data_source: str
+    field: str
+    index: int
+    original_value: Any
+    new_value: Any
+    reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class CoachAdjustmentRequest(BaseModel):
+    data_source: str
+    field: str
+    index: int
+    original_value: Any
+    new_value: Any
+    reason: Optional[str] = None

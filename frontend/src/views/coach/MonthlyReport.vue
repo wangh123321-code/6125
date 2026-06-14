@@ -110,6 +110,36 @@
         </el-col>
       </el-row>
 
+      <el-alert
+        v-if="excludedSessions.length > 0"
+        type="warning"
+        show-icon
+        :closable="false"
+        style="margin-top: 20px; border-radius: 12px;"
+      >
+        <template #title>
+          <span style="font-weight: 700;">数据质量排除提醒</span>
+        </template>
+        <div>
+          <p style="margin: 4px 0; font-size: 13px; color: #606266;">
+            本月有 <b style="color: #f59e0b;">{{ excludedSessions.length }}</b> 次训练课因数据质量低于阈值（60分）被排除出进步趋势计算，原始数据仍保留供教练查阅。
+          </p>
+          <el-table :data="excludedSessions" stripe size="small" style="margin-top: 8px;">
+            <el-table-column prop="session_date" label="训练日期" width="140" align="center">
+              <template #default="{ row }">
+                {{ (row.session_date || '').substring(0, 10) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="quality_score" label="质量评分" width="110" align="center">
+              <template #default="{ row }">
+                <el-tag type="danger" effect="dark" size="small" round>{{ row.quality_score }}分</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="exclusion_reason" label="排除原因" min-width="240" show-overflow-tooltip />
+          </el-table>
+        </div>
+      </el-alert>
+
       <el-row :gutter="20" style="margin-top: 20px;">
         <el-col :md="12" :sm="24">
           <el-card class="chart-card" shadow="hover">
@@ -219,6 +249,7 @@ import request from '@/utils/request'
 const generating = ref(false)
 const athleteList = ref([])
 const currentReport = ref(null)
+const excludedSessions = ref([])
 
 const currentYear = dayjs().year()
 const currentMonth = dayjs().month() + 1
@@ -336,6 +367,7 @@ const fillReportData = (data) => {
     regressed: c.regressed,
     description: c.regressed ? '需要关注' : (c.changed_percent > 0 ? '进步明显' : '保持稳定')
   }))
+  excludedSessions.value = data.excluded_sessions || []
 }
 
 const fillMockReport = () => {
@@ -344,6 +376,10 @@ const fillMockReport = () => {
   reportStats.training_count = 22
   reportStats.avg_heart_rate = 145
   reportStats.progress_index = 8
+  excludedSessions.value = [
+    { session_id: 'mock1', session_date: '2024-06-05T10:00:00', quality_score: 42, exclusion_reason: '数据质量评分42低于阈值60' },
+    { session_id: 'mock2', session_date: '2024-06-18T14:30:00', quality_score: 38, exclusion_reason: '数据质量评分38低于阈值60' }
+  ]
   compareData.value = [
     { metric: '总距离', current: '128.5', previous: '112.3', unit: ' km', change_rate: '+14.4%', regressed: false, description: '训练量稳步提升' },
     { metric: '训练次数', current: '22', previous: '20', unit: ' 次', change_rate: '+10.0%', regressed: false, description: '出勤率良好' },

@@ -284,6 +284,9 @@ def _make_comparison(metric: str, current: float, previous: float, higher_is_bet
     )
 
 
+QUALITY_THRESHOLD = 60.0
+
+
 async def _generate_report_for_athlete(athlete_id: str, year: int, month: int) -> MonthlyReportResponse:
     db = get_database()
 
@@ -300,26 +303,45 @@ async def _generate_report_for_athlete(athlete_id: str, year: int, month: int) -
             "session_date": {"$gte": start, "$lt": end},
         }
     )
-    sessions = await cursor.to_list(length=None)
+    all_sessions = await cursor.to_list(length=None)
 
-    total_distance = sum(s.get("total_distance_m", 0.0) or 0.0 for s in sessions)
+    reliable_sessions = []
+    excluded_sessions = []
+    for s in all_sessions:
+        quality = s.get("data_quality")
+        if quality and quality.get("overall", 100) < QUALITY_THRESHOLD:
+            excluded_sessions.append(s)
+        else:
+            reliable_sessions.append(s)
+
+    total_distance = sum(s.get("total_distance_m", 0.0) or 0.0 for s in reliable_sessions)
 
     all_hr_data: list = []
-    for s in sessions:
+    for s in reliable_sessions:
         hr_data = s.get("heart_rate_data", []) or []
         all_hr_data.extend(hr_data)
 
-    session_count = len(sessions)
+    session_count = len(reliable_sessions)
     total_duration_min = session_count * 60.0 if session_count > 0 else 0.0
     hr_zones = _calc_heart_rate_zones(all_hr_data, total_duration_min)
 
-    stroke_breakdown = _calc_stroke_breakdown(sessions)
-    technique_trends = _calc_technique_trends(sessions)
+    stroke_breakdown = _calc_stroke_breakdown(reliable_sessions)
+    technique_trends = _calc_technique_trends(reliable_sessions)
 
     prev_report = await db["monthly_reports"].find_one(
         {"athlete_id": athlete_oid, "year": prev_year, "month": prev_month}
     )
     comparison = _build_comparison(total_distance, hr_zones, technique_trends, prev_report)
+
+    excluded_info = []
+    for es in excluded_sessions:
+        q = es.get("data_quality", {})
+        excluded_info.append({
+            "session_id": str(es.get("_id", "")),
+            "session_date": es.get("session_date", "").isoformat() if isinstance(es.get("session_date"), datetime) else str(es.get("session_date", "")),
+            "quality_score": q.get("overall", 0) if q else 0,
+            "exclusion_reason": f"数据质量评分{q.get('overall', 0)}低于阈值{QUALITY_THRESHOLD}" if q else "缺少数据质量评分",
+        })
 
     report_doc = {
         "athlete_id": athlete_oid,
@@ -330,6 +352,8 @@ async def _generate_report_for_athlete(athlete_id: str, year: int, month: int) -
         "heart_rate_zones": [x.model_dump() for x in hr_zones],
         "technique_trends": [x.model_dump() for x in technique_trends],
         "comparison_to_last_month": [x.model_dump() for x in comparison],
+        "excluded_sessions": excluded_info,
+        "quality_threshold": QUALITY_THRESHOLD,
         "file_path": None,
         "created_at": datetime.utcnow(),
     }
